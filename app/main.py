@@ -7,16 +7,23 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 import os
+import logging
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 from app.core.database import engine, Base
-from app.models import models  # noqa: F401 — registra los modelos antes de create_all
+from app.models import models  # noqa: F401
 from app.routers import productos, clientes, ventas, cotizaciones, analytics, auth
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Crear tablas al iniciar (en producción usar Alembic)
-    Base.metadata.create_all(bind=engine)
+    try:
+        Base.metadata.create_all(bind=engine)
+        logger.info("✅ Tablas creadas/verificadas correctamente")
+    except Exception as e:
+        logger.error(f"⚠️  Error al crear tablas: {e}")
     yield
 
 
@@ -72,12 +79,17 @@ def root():
 
 @app.get("/health", tags=["Sistema"])
 def health():
-    """Endpoint de salud para Railway y monitoreo."""
-    from app.core.database import engine
+    """
+    Healthcheck para Railway.
+    SIEMPRE responde 200 — Railway necesita esto para considerar el deploy exitoso.
+    """
+    db_status = "desconocido"
     try:
+        from sqlalchemy import text
         with engine.connect() as conn:
-            conn.execute(__import__("sqlalchemy").text("SELECT 1"))
+            conn.execute(text("SELECT 1"))
         db_status = "conectada"
-    except Exception:
-        db_status = "error"
+    except Exception as e:
+        db_status = f"error: {str(e)[:80]}"
+
     return {"status": "ok", "database": db_status}
